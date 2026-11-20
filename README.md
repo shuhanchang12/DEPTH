@@ -1,5 +1,7 @@
 # DEPTH – Gemini Liquidity Vault on Arc
 
+**GitHub:** https://github.com/shuhanchang12/DEPTH
+
 A USDC vault on Arc that market-makes Gemini Prediction Markets and shares maker rebates + Liquidity Rewards with depositors.
 
 ## Problem
