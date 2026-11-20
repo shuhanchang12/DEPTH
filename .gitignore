@@ -5,3 +5,4 @@ contracts/broadcast/
 bot/.env
 __pycache__/
 *.pyc
+*.mp4
