@@ -336,7 +336,9 @@ def get_reward_events(limit: int = 100) -> list[dict[str, Any]]:
             "/v1/prediction-markets/liquidity-rewards/events",
             {"sort": "daily_pool_desc", "limit": limit},
         )
-        return data.get("data", data if isinstance(data, list) else [])
+        if isinstance(data, list):
+            return data
+        return data.get("events") or data.get("data") or []
     except Exception as exc:  # noqa: BLE001
         print(f"Error fetching reward events: {exc}")
         return []
