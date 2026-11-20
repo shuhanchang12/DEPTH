@@ -110,8 +110,21 @@ Connect MetaMask (Arc Testnet, chain id 5042002, added automatically), then depo
 
 | | Address |
 |---|---|
-| DepthVault (Arc Testnet) | _to be added_ |
+| DepthVault (Arc Testnet) | [`0xD551749570C93e5bb388Bedb7Cdf6E79A0a18732`](https://testnet.arcscan.app/address/0xD551749570C93e5bb388Bedb7Cdf6E79A0a18732) |
 | USDC (Arc Testnet) | `0x3600000000000000000000000000000000000000` |
+
+Test transactions on Arc Testnet:
+
+- Deploy: [0x65e6d8b6…](https://testnet.arcscan.app/tx/0x65e6d8b63690e04cc1db2f29b0777c8b885e691970f0044369e67074b55aabf2)
+- Approve USDC: [0x54e49998…](https://testnet.arcscan.app/tx/0x54e499984fdd0f4c328513691a2bc75ee381d42907a5c1fd8e02687626e7558f)
+- Deposit 10 USDC: [0x64698b4a…](https://testnet.arcscan.app/tx/0x64698b4aba20d70c653663ca32ee8342c9e3786830d628b16a0454211e688af0)
+- pullForMM 4 USDC: [0x145a4545…](https://testnet.arcscan.app/tx/0x145a45458b06ec5e4a264c08c3d9e6f6cf1b2f196b27235f8f4243b55bdbe43e)
+
+After these, the vault holds 10 USDC of assets: 6 idle and 4 deployed to the market-making account.
+
+## How DEPTH uses Arc
+
+All of DEPTH's onchain accounting lives on Arc: deposits, vault shares, capital sent to market making, NAV reports and the performance fee. Arc uses USDC as gas, so depositors hold and pay in a single asset and fees stay predictable in dollars. The vault talks to Arc's USDC through its ERC-20 interface (`0x3600…0000`, 6 decimals) and was built and tested with Foundry.
 
 ## Risks and limits
 

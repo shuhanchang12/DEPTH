@@ -24,5 +24,10 @@ Most prediction market projects build bots that bet. DEPTH sits on the other sid
 ## What would you build next?
 Automatic NAV reporting from Gemini positions and payouts, dynamic spreads, on-chain risk limits and a pause switch, QuickNode Streams to resize quotes when deposits land, and a compliant structure (CFTC commodity pool rules). Longer term, deeper books make prediction markets usable for real hedging, e.g. a small manufacturer protecting itself against a copper price spike.
 
+## Contract
+DepthVault on Arc Testnet: 0xD551749570C93e5bb388Bedb7Cdf6E79A0a18732
+https://testnet.arcscan.app/address/0xD551749570C93e5bb388Bedb7Cdf6E79A0a18732
+USDC (Arc Testnet): 0x3600000000000000000000000000000000000000
+
 ## Built with
 Solidity, OpenZeppelin (ERC-4626), Foundry, Arc Testnet, USDC, Python, web3.py, Gemini Prediction Markets API, ethers.js, HTML/JS
