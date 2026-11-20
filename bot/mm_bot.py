@@ -65,7 +65,7 @@ def _operator_address() -> str | None:
 
         w3 = Web3(Web3.HTTPProvider(RPC))
         return w3.eth.account.from_key(OPERATOR_KEY).address
-    except Exception as exc:  # noqa: BLE001 — soft-fail for MVP without chain keys
+    except Exception as exc:  # noqa: BLE001 - soft-fail for MVP without chain keys
         print(f"Warning: could not derive operator address: {exc}")
         return None
 
