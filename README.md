@@ -1,90 +1,134 @@
-# DEPTH – Gemini Liquidity Vault on Arc
+# DEPTH
 
-**GitHub:** https://github.com/shuhanchang12/DEPTH
+A USDC vault on Arc that provides liquidity to Gemini Prediction Markets.
 
-A USDC vault on Arc that market-makes Gemini Prediction Markets and shares maker rebates + Liquidity Rewards with depositors.
+You deposit USDC into the vault. A bot uses that capital to quote both sides of Gemini prediction markets, and earns the spread plus the rewards Gemini pays to market makers. Depositors keep 80% of the profit; 20% goes to the protocol as a performance fee.
 
-## Problem
+Built for the University Blockchain Conference 2026 hackathon (DeFi & Onchain Apps track, Arc, Gemini Prediction Markets bounty).
 
-Gemini Prediction Markets pay daily Liquidity Rewards and maker rebates for two-sided quoting. Many markets currently have zero or very few makers collecting these rewards. Institutional market-maker programs are restricted.
+## Why
 
-## Solution
+Gemini launched prediction markets in December 2025 and its order books are still thin. To fix that, Gemini pays makers in several ways: maker rebates on filled orders, daily Liquidity Rewards for resting orders (even if they never fill), and zero maker fees. When we looked at the public rewards endpoint, a lot of events had a reward pool and no qualifying maker at all.
 
-DEPTH pools USDC on Arc and runs a simple rules-compliant market-making bot. Depositors earn the net yield after a 20% performance fee.
+Gemini's market maker program is open to institutions only. A regular user with a few hundred dollars has no way to earn that yield. DEPTH pools capital on-chain so they can, and every trader on Gemini gets tighter prices as a side effect.
 
-## Architecture
+## How it works
 
-- **Vault (Arc)**: ERC-4626 style USDC vault. Tracks shares, collects 20% performance fee, and exposes capital for market-making.
-- **Market-making Bot**: Off-chain service that reads Gemini Liquidity Rewards pools, places and refreshes two-sided maker orders, and sweeps rewards back to the vault.
-- **Frontend**: Simple deposit / withdraw interface plus live TVL and active markets.
+```
+ depositors ──USDC──▶  DepthVault (Arc)  ──pullForMM──▶  operator / Gemini account
+     ▲                     │    ▲                              │
+     │                     │    └────── reportNAV / returnFromMM ┘
+     └──── dUSDC shares ───┘                                    │
+                                                    mm_bot.py quotes on Gemini
+```
 
-## Economic Design & Risk Assumptions
+1. Users deposit USDC into `DepthVault` and receive `dUSDC` shares (ERC-4626).
+2. The operator moves part of the idle USDC to the market-making account with `pullForMM`. The vault keeps counting it in `totalAssets` as `deployedAssets`, so the share price doesn't move when capital leaves.
+3. The bot reads which Gemini events pay Liquidity Rewards, ranks them and quotes the best ones (details below).
+4. The operator marks the market-making account to market on-chain with `reportNAV` (positions, cash, rebates and rewards), and sends USDC back with `returnFromMM` when needed.
+5. When the share price goes above its previous high, 20% of the gain is minted as shares to the fee recipient. There is no fee on deposits, and no fee while the vault is below its high-water mark.
+6. Users can withdraw whatever USDC is idle in the vault at any time.
 
-- Deposit asset: USDC
-- Performance fee: 20% of net profit (high-water mark)
-- No management fee
-- Risk: inventory risk on prediction contracts. Strategy is intentionally simple (fixed spread, size caps, two-sided only) to remain eligible for Gemini Liquidity Rewards.
-- Withdrawals: short configurable lockup to protect quoting.
+### Choosing markets
 
-## Quick Start
+The bot ranks every event in Gemini's Liquidity Rewards program with:
 
-### 1. Deploy Vault on Arc Testnet
+```
+score = daily reward pool / (qualifying makers + 1)
+```
+
+A $100/day pool with nobody quoting is worth more to us than the same pool shared with nine other makers. Events ending in less than 30 minutes are skipped. Capital is split across the top 5 events in proportion to their score.
+
+In each event the bot picks the contract with a mid price closest to 0.50 and places two maker-or-cancel orders: buy YES below mid and buy NO at `1 - ask` (the same exposure as offering YES at `ask`, without needing inventory). Spread and size follow the reward program's rules, which the bot reads from `/v1/prediction-markets/liquidity-rewards/config` (max 10 cents, min 100 contracts at the time of writing).
+
+## Repo
+
+```
+contracts/
+  src/DepthVault.sol        vault (ERC-4626, NAV tracking, 20% fee above HWM)
+  test/DepthVault.t.sol     Foundry tests
+  script/Deploy.s.sol       deployment to Arc Testnet
+bot/
+  mm_bot.py                 ranking, allocation, quoting, NAV reporting
+frontend/
+  index.html                deposit / withdraw and vault stats
+```
+
+## Run it
+
+### Contracts
 
 ```bash
 cd contracts
-forge create src/DepthVault.sol:DepthVault \
-  --rpc-url https://rpc.testnet.arc.network \
-  --private-key $PRIVATE_KEY \
-  --constructor-args 0x3600000000000000000000000000000000000000 YOUR_FEE_RECIPIENT \
-  --broadcast
+forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts@v5.1.0 --no-git
+forge test
 ```
 
-USDC (ERC-20 interface) on Arc Testnet: `0x3600000000000000000000000000000000000000` (6 decimals)
+Deploy to Arc Testnet (get test USDC at https://faucet.circle.com):
 
-Get test USDC: https://faucet.circle.com (select Arc Testnet)
+```bash
+export FEE_RECIPIENT=0x...   # defaults to the deployer
+export OPERATOR=0x...        # defaults to the deployer
+forge script script/Deploy.s.sol --rpc-url arc_testnet --private-key $PRIVATE_KEY --broadcast
+```
 
-### 2. Run Market-Making Bot
+Or directly. The constructor takes three arguments: USDC, fee recipient, operator.
+
+```bash
+forge create src/DepthVault.sol:DepthVault \
+  --rpc-url https://rpc.testnet.arc.network \
+  --private-key $PRIVATE_KEY --broadcast \
+  --constructor-args 0x3600000000000000000000000000000000000000 $FEE_RECIPIENT $OPERATOR
+```
+
+USDC on Arc Testnet: `0x3600000000000000000000000000000000000000` (6 decimals).
+
+### Bot
 
 ```bash
 cd bot
 cp .env.example .env
-# Fill GEMINI_API_KEY + GEMINI_API_SECRET for live sandbox orders.
-# Leave DRY_RUN=true to log two-sided maker quotes without private API calls.
 pip install -r requirements.txt
-python mm_bot.py
+
+python mm_bot.py rank             # live ranking of Gemini reward events
+python mm_bot.py                  # quoting loop (DRY_RUN=true prints orders only)
+python mm_bot.py report-nav 1150  # mark the MM account at 1150 USDC on the vault
 ```
 
-Authenticated quoting uses Gemini HMAC REST (`POST /v1/prediction-markets/order` with `makerOrCancel=true`). Defaults: fixed spread, size cap, two-sided only.
+Market data comes from Gemini production (public endpoints). Orders go to the Gemini sandbox, which needs its own account and API key. Set `DRY_RUN=false` and fill `GEMINI_API_KEY` / `GEMINI_API_SECRET` to send real sandbox orders.
 
-### 3. Frontend
-
-Single-page wallet UI (`frontend/index.html`, ethers via CDN).
+### Frontend
 
 ```bash
-# from repo / store root
 python3 -m http.server 8080 --directory frontend
-# open http://127.0.0.1:8080/?vault=0xYOUR_DEPLOYED_VAULT
+# open http://127.0.0.1:8080/?vault=0xYOUR_VAULT
 ```
 
-1. Deploy the vault and copy its address.
-2. Open the page with `?vault=0x…`, paste into **VAULT_ADDRESS**, or set the `CONFIG.VAULT_ADDRESS` constant in the HTML.
-3. Connect MetaMask (Arc Testnet is added/switched automatically: chain `5042002`, RPC `https://rpc.testnet.arc.network`).
-4. Deposit: approves USDC then `deposit`. Withdraw: `withdraw(assets, you, you)`.
-5. Stats (TVL, shares, share price) read on-chain; refresh every 15s.
+Connect MetaMask (Arc Testnet, chain id 5042002, added automatically), then deposit or withdraw. The page shows TVL, share price, idle USDC and capital deployed to market making.
 
-Test USDC: https://faucet.circle.com (Arc Testnet).
+## Deployment
 
-## Contracts
+| | Address |
+|---|---|
+| DepthVault (Arc Testnet) | _to be added_ |
+| USDC (Arc Testnet) | `0x3600000000000000000000000000000000000000` |
 
-- Vault: deploy and record address
-- USDC: `0x3600000000000000000000000000000000000000`
+## Risks and limits
 
-## Tracks & Bounties
+- Inventory and adverse selection: if the market moves against our quotes, or better-informed traders pick us off, the vault loses money. We limit size per market and stay two-sided.
+- Incentives: part of the yield comes from Gemini's reward programs, which Gemini can change or end.
+- Custody: capital deployed to market making sits in a Gemini account controlled by the operator, and its value reaches the chain through `reportNAV`. Depositors trust the operator for that part.
+- Regulation: pooling money to trade CFTC-regulated event contracts is a commodity pool in the US. A real launch would need a registered operator or partner.
+- The MVP quotes on the Gemini sandbox. NAV is reported by the operator, not proven on-chain.
 
-- Main track: DeFi and Onchain Applications
-- Chain award: Best use of Arc
-- Bounty: Gemini Prediction Markets (do not opt into QuickNode Streams unless a Stream is implemented)
+## Next
 
-## What’s Next
+- Read positions and reward payouts from Gemini and report NAV automatically.
+- Dynamic spreads based on volatility and inventory.
+- On-chain risk limits (max deployed share, per-market caps) and a pause switch.
+- QuickNode Streams on Arc to resize quotes as soon as deposits or withdrawals land.
+- Longer term, deeper books make prediction markets usable for real hedging, for example a small manufacturer protecting itself against a copper price spike.
 
-Multi-market allocation, dynamic spreads, on-chain risk parameters, automated circuit breakers, and deeper real-world hedging integrations.
+## Team
+
+Ryan, Shuhan (Shelly) Chang and Mark-Killian Zinenberg, Kryptosphere.
