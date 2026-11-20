@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DEPTH – Gemini Liquidity Vault</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.5/dist/ethers.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0b0d12;
+      --panel: #151821;
+      --panel-border: #242836;
+      --text: #e8eaef;
+      --muted: #9aa3b2;
+      --accent: #00d4aa;
+      --accent-dim: #00a884;
+      --danger: #ff6b7a;
+      --warn: #f5c542;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background:
+        radial-gradient(ellipse 80% 50% at 10% -10%, rgba(0, 212, 170, 0.12), transparent),
+        radial-gradient(ellipse 60% 40% at 90% 0%, rgba(60, 100, 255, 0.08), transparent),
+        var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    main { max-width: 720px; margin: 0 auto; padding: 32px 20px 64px; }
+    header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+    h1 { margin: 0; color: var(--accent); letter-spacing: 0.04em; font-size: 2rem; }
+    .tagline { margin: 6px 0 0; color: var(--muted); font-size: 0.95rem; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 14px;
+      padding: 20px;
+      margin: 14px 0;
+    }
+    .card h3 { margin: 0 0 12px; font-size: 1rem; font-weight: 600; }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .stat strong { display: block; color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+    .stat span { font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+    label { display: block; font-size: 0.8rem; color: var(--muted); margin: 10px 0 4px; }
+    input {
+      width: 100%;
+      padding: 11px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--panel-border);
+      background: #0f121a;
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+    input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .row input { flex: 1; min-width: 160px; }
+    button {
+      padding: 11px 16px;
+      border-radius: 8px;
+      border: none;
+      background: var(--accent);
+      color: #041510;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    button:hover:not(:disabled) { background: var(--accent-dim); color: #fff; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+    button.ghost { background: #1c2030; color: var(--text); }
+    .wallet {
+      text-align: right;
+      font-size: 0.85rem;
+      color: var(--muted);
+      min-width: 140px;
+    }
+    .wallet .addr { color: var(--text); font-variant-numeric: tabular-nums; }
+    #status {
+      margin-top: 10px;
+      min-height: 1.2em;
+      font-size: 0.85rem;
+      color: var(--muted);
+      word-break: break-word;
+    }
+    #status.error { color: var(--danger); }
+    #status.ok { color: var(--accent); }
+    #status.warn { color: var(--warn); }
+    .hint { font-size: 0.8rem; color: var(--muted); margin-top: 8px; }
+    .bal { font-size: 0.8rem; color: var(--muted); margin-top: 6px; }
+    @media (max-width: 560px) {
+      header { flex-direction: column; }
+      .stats { grid-template-columns: 1fr; }
+      .wallet { text-align: left; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>DEPTH</h1>
+        <p class="tagline">USDC Liquidity Vault for Gemini Prediction Markets on Arc</p>
+      </div>
+      <div class="wallet">
+        <button id="connectBtn" type="button">Connect Wallet</button>
+        <div id="walletInfo" hidden>
+          <div class="addr" id="walletAddr"></div>
+          <div id="networkLabel">Arc Testnet</div>
+        </div>
+      </div>
+    </header>
+
+    <div class="card">
+      <h3>Vault config</h3>
+      <label for="vaultAddr">VAULT_ADDRESS</label>
+      <div class="row">
+        <input id="vaultAddr" type="text" spellcheck="false" placeholder="0x…" />
+        <button id="saveVaultBtn" class="ghost" type="button">Use</button>
+      </div>
+      <p class="hint">Set via this field, <code>?vault=0x…</code>, or the config constant below. Persist in localStorage.</p>
+    </div>
+
+    <div class="card">
+      <div class="stats">
+        <div class="stat"><strong>TVL</strong><span id="tvl">—</span></div>
+        <div class="stat"><strong>Your Shares</strong><span id="shares">—</span></div>
+        <div class="stat"><strong>Share Price</strong><span id="price">—</span></div>
+      </div>
+      <p class="bal">Wallet USDC: <span id="usdcBal">—</span></p>
+      <button id="refreshBtn" class="secondary" type="button" style="margin-top:12px">Refresh</button>
+    </div>
+
+    <div class="card">
+      <h3>Deposit</h3>
+      <label for="depositAmt">Amount (USDC)</label>
+      <div class="row">
+        <input id="depositAmt" type="number" min="0" step="any" placeholder="100" />
+        <button id="depositBtn" type="button" disabled>Deposit</button>
+      </div>
+      <p class="hint">Approves USDC, then calls <code>deposit(assets, you)</code>.</p>
+    </div>
+
+    <div class="card">
+      <h3>Withdraw</h3>
+      <label for="withdrawAmt">Amount (USDC)</label>
+      <div class="row">
+        <input id="withdrawAmt" type="number" min="0" step="any" placeholder="50" />
+        <button id="withdrawBtn" type="button" disabled>Withdraw</button>
+      </div>
+      <p class="hint">Calls <code>withdraw(assets, you, you)</code> (burns shares for USDC).</p>
+    </div>
+
+    <div class="card">
+      <h3>Active Markets</h3>
+      <div id="markets"><p class="hint">Connect the MM bot to surface quoted markets here.</p></div>
+    </div>
+
+    <div id="status"></div>
+  </main>
+
+  <script>
+    // ——— Config (hackathon MVP) ———
+    const CONFIG = {
+      // Placeholder until vault is deployed; override via ?vault= or UI / localStorage
+      VAULT_ADDRESS: "0x0000000000000000000000000000000000000000",
+      USDC_ADDRESS: "0x3600000000000000000000000000000000000000",
+      RPC_URL: "https://rpc.testnet.arc.network",
+      CHAIN_ID: 5042002,
+      CHAIN_ID_HEX: "0x4cef52",
+      EXPLORER: "https://explorer.testnet.arc.io",
+      ASSET_DECIMALS: 6,
+    };
+
+    const ERC20_ABI = [
+      "function approve(address spender, uint256 amount) returns (bool)",
+      "function allowance(address owner, address spender) view returns (uint256)",
+      "function balanceOf(address account) view returns (uint256)",
+      "function decimals() view returns (uint8)",
+    ];
+
+    const VAULT_ABI = [
+      "function deposit(uint256 assets, address receiver) returns (uint256 shares)",
+      "function withdraw(uint256 assets, address receiver, address owner) returns (uint256 shares)",
+      "function totalAssets() view returns (uint256)",
+      "function totalSupply() view returns (uint256)",
+      "function balanceOf(address account) view returns (uint256)",
+      "function decimals() view returns (uint8)",
+      "function convertToAssets(uint256 shares) view returns (uint256)",
+      "function asset() view returns (address)",
+    ];
+
+    const $ = (id) => document.getElementById(id);
+    const statusEl = $("status");
+
+    let provider = null;       // BrowserProvider (signer-capable)
+    let readProvider = null;   // JsonRpcProvider for reads without wallet
+    let signer = null;
+    let account = null;
+    let vaultAddress = CONFIG.VAULT_ADDRESS;
+    let assetDecimals = CONFIG.ASSET_DECIMALS;
+    let shareDecimals = 18;
+    let refreshTimer = null;
+
+    function setStatus(msg, kind = "") {
+      statusEl.textContent = msg || "";
+      statusEl.className = kind;
+    }
+
+    function shortAddr(a) {
+      return a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "";
+    }
+
+    function isAddress(a) {
+      try { return ethers.isAddress(a); } catch { return false; }
+    }
+
+    function parseVaultFromQuery() {
+      const q = new URLSearchParams(location.search);
+      const v = q.get("vault") || q.get("VAULT_ADDRESS");
+      if (v && isAddress(v)) return ethers.getAddress(v);
+      return null;
+    }
+
+    function loadVaultAddress() {
+      const fromQuery = parseVaultFromQuery();
+      if (fromQuery) {
+        localStorage.setItem("depth_vault", fromQuery);
+        return fromQuery;
+      }
+      const stored = localStorage.getItem("depth_vault");
+      if (stored && isAddress(stored)) return ethers.getAddress(stored);
+      if (CONFIG.VAULT_ADDRESS && isAddress(CONFIG.VAULT_ADDRESS) && !isZero(CONFIG.VAULT_ADDRESS)) {
+        return ethers.getAddress(CONFIG.VAULT_ADDRESS);
+      }
+      return CONFIG.VAULT_ADDRESS;
+    }
+
+    function isZero(a) {
+      return !a || /^0x0+$/i.test(a);
+    }
+
+    function vaultReady() {
+      return isAddress(vaultAddress) && !isZero(vaultAddress);
+    }
+
+    function fmtUnits(value, decimals, maxFrac = 4) {
+      const n = Number(ethers.formatUnits(value, decimals));
+      if (!Number.isFinite(n)) return "—";
+      return n.toLocaleString(undefined, { maximumFractionDigits: maxFrac });
+    }
+
+    function getReadProvider() {
+      if (!readProvider) readProvider = new ethers.JsonRpcProvider(CONFIG.RPC_URL, CONFIG.CHAIN_ID);
+      return readProvider;
+    }
+
+    function vaultContract(runner) {
+      return new ethers.Contract(vaultAddress, VAULT_ABI, runner);
+    }
+
+    function usdcContract(runner) {
+      return new ethers.Contract(CONFIG.USDC_ADDRESS, ERC20_ABI, runner);
+    }
+
+    function updateActionButtons() {
+      const ready = Boolean(account) && vaultReady();
+      $("depositBtn").disabled = !ready;
+      $("withdrawBtn").disabled = !ready;
+    }
+
+    async function ensureArcNetwork() {
+      const eth = window.ethereum;
+      if (!eth) throw new Error("No injected wallet (install MetaMask).");
+      try {
+        await eth.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: CONFIG.CHAIN_ID_HEX }],
+        });
+      } catch (err) {
+        if (err.code === 4902 || err?.data?.originalError?.code === 4902) {
+          await eth.request({
+            method: "wallet_addEthereumChain",
+            params: [{
+              chainId: CONFIG.CHAIN_ID_HEX,
+              chainName: "Arc Testnet",
+              nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
+              rpcUrls: [CONFIG.RPC_URL, "https://rpc.testnet.arc.io"],
+              blockExplorerUrls: [CONFIG.EXPLORER],
+            }],
+          });
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    async function connectWallet() {
+      if (!window.ethereum) {
+        setStatus("No injected provider. Install MetaMask (or another EVM wallet).", "error");
+        return;
+      }
+      try {
+        setStatus("Connecting…");
+        await ensureArcNetwork();
+        provider = new ethers.BrowserProvider(window.ethereum, CONFIG.CHAIN_ID);
+        await provider.send("eth_requestAccounts", []);
+        signer = await provider.getSigner();
+        account = await signer.getAddress();
+        $("connectBtn").hidden = true;
+        $("walletInfo").hidden = false;
+        $("walletAddr").textContent = shortAddr(account);
+        $("networkLabel").textContent = `Arc Testnet · ${CONFIG.CHAIN_ID}`;
+        updateActionButtons();
+        setStatus(`Connected ${shortAddr(account)}`, "ok");
+        await refreshStats();
+        startAutoRefresh();
+      } catch (e) {
+        console.error(e);
+        setStatus(e.shortMessage || e.message || String(e), "error");
+      }
+    }
+
+    async function refreshStats() {
+      if (!vaultReady()) {
+        $("tvl").textContent = "—";
+        $("shares").textContent = "—";
+        $("price").textContent = "—";
+        $("usdcBal").textContent = "—";
+        setStatus("Set a deployed VAULT_ADDRESS to load on-chain stats.", "warn");
+        updateActionButtons();
+        return;
+      }
+
+      try {
+        const runner = account && signer ? signer : getReadProvider();
+        const vault = vaultContract(runner);
+        const usdc = usdcContract(runner);
+
+        const [totalAssets, totalSupply, shareDec, assetDec] = await Promise.all([
+          vault.totalAssets(),
+          vault.totalSupply(),
+          vault.decimals().catch(() => 18n),
+          usdc.decimals().catch(() => BigInt(CONFIG.ASSET_DECIMALS)),
+        ]);
+        shareDecimals = Number(shareDec);
+        assetDecimals = Number(assetDec);
+
+        $("tvl").textContent = `${fmtUnits(totalAssets, assetDecimals)} USDC`;
+
+        let sharePrice = "1.00";
+        if (totalSupply > 0n) {
+          const oneShare = 10n ** BigInt(shareDecimals);
+          const assetsPerShare = await vault.convertToAssets(oneShare);
+          sharePrice = Number(ethers.formatUnits(assetsPerShare, assetDecimals)).toFixed(6);
+        }
+        $("price").textContent = `${sharePrice} USDC`;
+
+        if (account) {
+          const [shares, bal] = await Promise.all([
+            vault.balanceOf(account),
+            usdc.balanceOf(account),
+          ]);
+          $("shares").textContent = fmtUnits(shares, shareDecimals, 6);
+          $("usdcBal").textContent = `${fmtUnits(bal, assetDecimals)} USDC`;
+        } else {
+          $("shares").textContent = "—";
+          const bal = await usdc.balanceOf(ethers.ZeroAddress).catch(() => null);
+          $("usdcBal").textContent = "connect wallet";
+        }
+
+        if (!statusEl.classList.contains("error")) {
+          setStatus(`Updated ${new Date().toLocaleTimeString()}`, "ok");
+        }
+        updateActionButtons();
+      } catch (e) {
+        console.error(e);
+        setStatus(`Read failed: ${e.shortMessage || e.message || e}`, "error");
+      }
+    }
+
+    async function deposit() {
+      if (!signer || !account) return setStatus("Connect wallet first.", "error");
+      if (!vaultReady()) return setStatus("Set VAULT_ADDRESS first.", "error");
+      const raw = $("depositAmt").value.trim();
+      if (!raw || Number(raw) <= 0) return setStatus("Enter a deposit amount.", "warn");
+
+      try {
+        const assets = ethers.parseUnits(raw, assetDecimals);
+        const vault = vaultContract(signer);
+        const usdc = usdcContract(signer);
+
+        setStatus("Checking USDC allowance…");
+        const allowance = await usdc.allowance(account, vaultAddress);
+        if (allowance < assets) {
+          setStatus("Approve USDC in wallet…");
+          const txA = await usdc.approve(vaultAddress, assets);
+          setStatus(`Approve tx ${txA.hash}…`, "warn");
+          await txA.wait();
+        }
+
+        setStatus("Confirm deposit in wallet…");
+        const tx = await vault.deposit(assets, account);
+        setStatus(`Deposit tx ${tx.hash}…`, "warn");
+        await tx.wait();
+        setStatus(`Deposited ${raw} USDC. Tx: ${tx.hash}`, "ok");
+        $("depositAmt").value = "";
+        await refreshStats();
+      } catch (e) {
+        console.error(e);
+        setStatus(e.shortMessage || e.message || String(e), "error");
+      }
+    }
+
+    async function withdraw() {
+      if (!signer || !account) return setStatus("Connect wallet first.", "error");
+      if (!vaultReady()) return setStatus("Set VAULT_ADDRESS first.", "error");
+      const raw = $("withdrawAmt").value.trim();
+      if (!raw || Number(raw) <= 0) return setStatus("Enter a withdraw amount.", "warn");
+
+      try {
+        const assets = ethers.parseUnits(raw, assetDecimals);
+        const vault = vaultContract(signer);
+        setStatus("Confirm withdraw in wallet…");
+        const tx = await vault.withdraw(assets, account, account);
+        setStatus(`Withdraw tx ${tx.hash}…`, "warn");
+        await tx.wait();
+        setStatus(`Withdrew ${raw} USDC. Tx: ${tx.hash}`, "ok");
+        $("withdrawAmt").value = "";
+        await refreshStats();
+      } catch (e) {
+        console.error(e);
+        setStatus(e.shortMessage || e.message || String(e), "error");
+      }
+    }
+
+    function applyVaultAddress(addr, persist = true) {
+      if (!isAddress(addr)) {
+        setStatus("Invalid vault address.", "error");
+        return false;
+      }
+      vaultAddress = ethers.getAddress(addr);
+      $("vaultAddr").value = vaultAddress;
+      if (persist && !isZero(vaultAddress)) localStorage.setItem("depth_vault", vaultAddress);
+      updateActionButtons();
+      refreshStats();
+      return true;
+    }
+
+    function startAutoRefresh() {
+      if (refreshTimer) clearInterval(refreshTimer);
+      refreshTimer = setInterval(() => {
+        if (document.visibilityState === "visible") refreshStats();
+      }, 15000);
+    }
+
+    function wireWalletEvents() {
+      if (!window.ethereum?.on) return;
+      window.ethereum.on("accountsChanged", async (accounts) => {
+        if (!accounts?.length) {
+          account = null;
+          signer = null;
+          $("connectBtn").hidden = false;
+          $("walletInfo").hidden = true;
+          updateActionButtons();
+          setStatus("Wallet disconnected.", "warn");
+          return;
+        }
+        account = ethers.getAddress(accounts[0]);
+        provider = new ethers.BrowserProvider(window.ethereum, "any");
+        signer = await provider.getSigner();
+        $("connectBtn").hidden = true;
+        $("walletInfo").hidden = false;
+        $("walletAddr").textContent = shortAddr(account);
+        updateActionButtons();
+        refreshStats();
+      });
+      window.ethereum.on("chainChanged", () => {
+        // MetaMask recommends reload; soft-reconnect is enough for MVP
+        connectWallet().catch(() => location.reload());
+      });
+    }
+
+    // ——— Boot ———
+    vaultAddress = loadVaultAddress();
+    $("vaultAddr").value = isZero(vaultAddress) ? "" : vaultAddress;
+
+    $("connectBtn").addEventListener("click", connectWallet);
+    $("refreshBtn").addEventListener("click", () => refreshStats());
+    $("depositBtn").addEventListener("click", deposit);
+    $("withdrawBtn").addEventListener("click", withdraw);
+    $("saveVaultBtn").addEventListener("click", () => {
+      applyVaultAddress($("vaultAddr").value.trim());
+    });
+    $("vaultAddr").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") applyVaultAddress($("vaultAddr").value.trim());
+    });
+
+    wireWalletEvents();
+    updateActionButtons();
+    refreshStats();
+    startAutoRefresh();
+  </script>
+</body>
+</html>
