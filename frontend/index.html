@@ -127,6 +127,9 @@
         <div class="stat"><strong>TVL</strong><span id="tvl">—</span></div>
         <div class="stat"><strong>Your Shares</strong><span id="shares">—</span></div>
         <div class="stat"><strong>Share Price</strong><span id="price">—</span></div>
+        <div class="stat"><strong>Idle in vault</strong><span id="idle">—</span></div>
+        <div class="stat"><strong>Deployed to Gemini MM</strong><span id="deployed">—</span></div>
+        <div class="stat"><strong>Performance fee</strong><span>20% above HWM</span></div>
       </div>
       <p class="bal">Wallet USDC: <span id="usdcBal">—</span></p>
       <button id="refreshBtn" class="secondary" type="button" style="margin-top:12px">Refresh</button>
@@ -154,7 +157,7 @@
 
     <div class="card">
       <h3>Active Markets</h3>
-      <div id="markets"><p class="hint">Connect the MM bot to surface quoted markets here.</p></div>
+      <div id="markets"><p class="hint">The bot ranks Gemini events paying Liquidity Rewards by <code>daily pool / (makers + 1)</code> and quotes the top ones. Run <code>python bot/mm_bot.py rank</code> to see the live ranking.</p></div>
     </div>
 
     <div id="status"></div>
@@ -184,6 +187,8 @@
       "function deposit(uint256 assets, address receiver) returns (uint256 shares)",
       "function withdraw(uint256 assets, address receiver, address owner) returns (uint256 shares)",
       "function totalAssets() view returns (uint256)",
+      "function idleAssets() view returns (uint256)",
+      "function deployedAssets() view returns (uint256)",
       "function totalSupply() view returns (uint256)",
       "function balanceOf(address account) view returns (uint256)",
       "function decimals() view returns (uint8)",
@@ -348,6 +353,12 @@
         assetDecimals = Number(assetDec);
 
         $("tvl").textContent = `${fmtUnits(totalAssets, assetDecimals)} USDC`;
+        const [idle, deployed] = await Promise.all([
+          vault.idleAssets().catch(() => null),
+          vault.deployedAssets().catch(() => null),
+        ]);
+        $("idle").textContent = idle === null ? "—" : `${fmtUnits(idle, assetDecimals)} USDC`;
+        $("deployed").textContent = deployed === null ? "—" : `${fmtUnits(deployed, assetDecimals)} USDC`;
 
         let sharePrice = "1.00";
         if (totalSupply > 0n) {
